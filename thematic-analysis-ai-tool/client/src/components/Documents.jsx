@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import {
   Box,
   Button,
@@ -37,8 +37,13 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
-  alpha
+  alpha,
+  Fade,
+  Zoom
 } from '@mui/material';
+import { AnimatedCard, GlassPanel, GlowButton } from './StyledComponents';
+import ThemeToggle from './ThemeToggle';
+import { ThemeModeContext } from '../App';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
@@ -60,40 +65,71 @@ import { getDocument } from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 // Custom theme augmentation
-const customTheme = {
-  primary: {
-    lighter: '#E3F2FD',
-    light: '#90CAF9',
-    main: '#2196F3',
-    dark: '#1976D2',
-  }
+const getCustomTheme = (theme) => {
+  const isDark = theme.palette.mode === 'dark';
+  return {
+    primary: {
+      lighter: isDark ? alpha(theme.palette.primary.main, 0.2) : '#E3F2FD',
+      light: isDark ? alpha(theme.palette.primary.main, 0.4) : '#90CAF9',
+      main: theme.palette.primary.main,
+      dark: theme.palette.primary.dark,
+    },
+    transitions: {
+      buttonHover: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+      cardHover: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+    }
+  };
 };
 
-const DropzoneArea = styled(Box)(({ theme, isdragging }) => ({
-  border: '2px dashed',
-  borderColor: isdragging === 'true' ? theme.palette.primary.main : theme.palette.grey[300],
-  borderRadius: theme.shape.borderRadius * 2,
-  padding: theme.spacing(6),
-  textAlign: 'center',
-  cursor: 'pointer',
-  backgroundColor: isdragging === 'true' ? customTheme.primary.lighter : theme.palette.grey[50],
-  transition: 'all 0.3s ease',
-  width: '100%',
-  minHeight: 200,
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'center',
-  alignItems: 'center',
-  gap: theme.spacing(2),
-  '&:hover': {
-    borderColor: theme.palette.primary.main,
-    backgroundColor: customTheme.primary.lighter,
-  },
-}));
+const DropzoneArea = styled(Box)(({ theme, isdragging }) => {
+  const isDarkMode = theme.palette.mode === 'dark';
+  const customColors = getCustomTheme(theme);
+  
+  return {
+    border: '2px dashed',
+    borderColor: isdragging === 'true' 
+      ? theme.palette.primary.main 
+      : isDarkMode ? theme.palette.grey[600] : theme.palette.grey[300],
+    borderRadius: theme.shape.borderRadius * 2,
+    padding: theme.spacing(6),
+    textAlign: 'center',
+    cursor: 'pointer',
+    backgroundColor: isdragging === 'true' 
+      ? (isDarkMode ? alpha(theme.palette.primary.main, 0.15) : customColors.primary.lighter)
+      : (isDarkMode ? alpha(theme.palette.background.paper, 0.6) : theme.palette.grey[50]),
+    transition: 'all 0.3s ease',
+    width: '100%',
+    minHeight: 200,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: theme.spacing(2),
+    '&:hover': {
+      borderColor: theme.palette.primary.main,
+      backgroundColor: isDarkMode 
+        ? alpha(theme.palette.primary.main, 0.15) 
+        : customColors.primary.lighter,
+      boxShadow: isDarkMode 
+        ? `0 0 8px ${alpha(theme.palette.primary.main, 0.4)}` 
+        : 'none',
+    },
+  };
+});
 
 const FileTypeIcon = ({ fileType }) => {
   const theme = useTheme();
-  const iconProps = { sx: { fontSize: 40, color: theme.palette.primary.main } };
+  const iconProps = { 
+    sx: { 
+      fontSize: 40, 
+      color: theme.palette.primary.main,
+      filter: theme.palette.mode === 'dark' ? 'drop-shadow(0 0 3px rgba(255,255,255,0.2))' : 'none',
+      transition: 'all 0.2s ease-in-out',
+      '&:hover': {
+        transform: 'scale(1.05)'
+      }
+    } 
+  };
   
   switch(fileType) {
     case 'pdf':
@@ -128,8 +164,28 @@ function Documents({
   refreshSidebar, // New prop to trigger sidebar refresh when documents change
   selectedDocumentId, // New prop to handle document selection from navigation
   setSelectedDocumentId // New prop to clear selection after processing
-}) {
-  const theme = useTheme();
+}) {  const theme = useTheme();
+  // Get mode directly from theme to avoid potential context issues
+  const mode = theme.palette.mode;
+  const themeCustom = useMemo(() => getCustomTheme(theme), [theme]);
+  
+  // Enhanced button style - used throughout component
+  const enhancedButtonStyle = {
+    transition: themeCustom.transitions.buttonHover,
+    borderRadius: theme.shape.borderRadius * 1.2,
+    boxShadow: theme.palette.mode === 'dark'
+      ? `0 2px 8px ${alpha(theme.palette.common.black, 0.25)}`
+      : `0 2px 8px ${alpha(theme.palette.common.black, 0.1)}`,
+    '&:hover': {
+      transform: 'translateY(-2px)',
+      boxShadow: theme.palette.mode === 'dark'
+        ? `0 4px 12px ${alpha(theme.palette.common.black, 0.35)}`
+        : `0 4px 12px ${alpha(theme.palette.common.black, 0.15)}`,
+    },
+    '&:active': {
+      transform: 'translateY(1px)',
+    }
+  };
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileData, setFileData] = useState({});
   const [activeFile, setActiveFile] = useState(null);
@@ -836,12 +892,16 @@ function Documents({
         break;
     }
   };
-
   return (
-    <Box sx={{ display: 'flex', height: '100%', gap: 3, position: 'relative' }}>
-      {/* Left Sidebar - File List */}
-      <Paper
-        elevation={0}
+    <Box sx={{ 
+      display: 'flex', 
+      height: '100%', 
+      gap: 3, 
+      position: 'relative',
+      transition: 'all 0.3s ease',
+    }}>
+      {/* Left Sidebar - File List */}      <Paper
+        elevation={mode === 'dark' ? 3 : 0}
         sx={{
           width: 300,
           p: 2,
@@ -850,10 +910,65 @@ function Documents({
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
-          bgcolor: '#fff',
+          bgcolor: theme.palette.background.paper,
+          boxShadow: theme.palette.mode === 'dark' 
+            ? `0 4px 20px ${alpha(theme.palette.common.black, 0.3)}`
+            : `0 4px 20px ${alpha(theme.palette.common.black, 0.05)}`,
+          transition: themeCustom.transitions.cardHover,
+          '&:hover': {
+            boxShadow: theme.palette.mode === 'dark' 
+              ? `0 5px 25px ${alpha(theme.palette.common.black, 0.4)}`
+              : `0 5px 25px ${alpha(theme.palette.common.black, 0.1)}`,
+          },
+          animation: 'fadeIn 0.6s ease-in-out',
+          '@keyframes fadeIn': {
+            '0%': {
+              opacity: 0,
+              transform: 'translateX(-10px)'
+            },
+            '100%': {
+              opacity: 1,
+              transform: 'translateX(0)'
+            }
+          }
         }}
-      >
-        <Typography variant="h6" sx={{ px: 1 }}>Files</Typography>
+        >        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          px: 1
+        }}>
+          <Typography variant="h6" sx={{ 
+            fontWeight: 600,
+            position: 'relative',
+            '&:after': {
+              content: '""',
+              position: 'absolute',
+              bottom: -4,
+              left: 0,
+              width: '30px',
+              height: '2px',
+              backgroundColor: theme.palette.primary.main,
+              borderRadius: '2px'
+            }
+          }}>
+            Files
+          </Typography>
+          
+          <Chip 
+            label={`${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''}`}
+            size="small"
+            color="primary"
+            variant={theme.palette.mode === 'dark' ? 'outlined' : 'filled'}
+            sx={{ 
+              borderRadius: '14px',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'scale(1.05)'
+              }
+            }}
+          />
+        </Box>
         
         <DropzoneArea
           isdragging={isDragging.toString()}
@@ -861,6 +976,15 @@ function Documents({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onClick={() => document.getElementById('file-input').click()}
+          sx={{
+            minHeight: '140px',
+            animation: 'pulse 2s infinite ease-in-out',
+            '@keyframes pulse': {
+              '0%': { boxShadow: '0 0 0 0 rgba(33, 150, 243, 0)' },
+              '50%': { boxShadow: '0 0 0 5px rgba(33, 150, 243, 0.1)' },
+              '100%': { boxShadow: '0 0 0 0 rgba(33, 150, 243, 0)' }
+            }
+          }}
         >
           <input
             id="file-input"
@@ -870,12 +994,22 @@ function Documents({
             style={{ display: 'none' }}
             accept=".txt,.pdf,.csv,.xlsx,.xls"
           />
-          <CloudUploadIcon sx={{ fontSize: 48, color: theme.palette.primary.main }} />
-          <Typography variant="body1" color="textSecondary">
-            Drag & drop files here or click to browse
+          <CloudUploadIcon sx={{ 
+            fontSize: 48, 
+            color: theme.palette.primary.main,
+            filter: theme.palette.mode === 'dark' 
+              ? 'drop-shadow(0 0 5px rgba(33, 150, 243, 0.5))'
+              : 'none',
+            transition: 'transform 0.3s ease',
+            '&:hover': {
+              transform: 'translateY(-3px)'
+            }
+          }} />
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            Drag & drop files here
           </Typography>
           <Typography variant="caption" color="textSecondary">
-            Supported formats: TXT, PDF, CSV, XLSX
+            Supports: TXT, PDF, CSV, XLSX
           </Typography>
         </DropzoneArea>
 
@@ -886,8 +1020,7 @@ function Documents({
         )}
 
         {/* Upload button that appears when files are selected */}
-        {selectedFiles.length > 0 && (
-          <Button
+        {selectedFiles.length > 0 && (          <GlowButton
             variant="contained"
             color="primary"
             startIcon={<UploadFileIcon />}
@@ -921,10 +1054,9 @@ function Documents({
                 
                 // Add these to our existing documents
                 setDocuments(prev => [...prev, ...newDocuments]);
-                
-                alert(`Successfully uploaded ${selectedFiles.length} documents`);
+                  const snackMessage = `Successfully uploaded ${selectedFiles.length} documents`;
+                // Use Snackbar instead of alert for a more modern UI experience
                 setUploadSuccess(true);
-                
                 // Clear selected files after successful upload
                 setSelectedFiles([]);
                 setFileData({});
@@ -944,8 +1076,13 @@ function Documents({
             }}
             sx={{ 
               mt: 1,
-              borderRadius: 1.5,
-              position: 'relative'
+              position: 'relative',
+              ...enhancedButtonStyle,
+              fontWeight: 500,
+              py: 1,
+              boxShadow: theme.palette.mode === 'dark' 
+                ? `0 0 15px ${alpha(theme.palette.primary.main, 0.4)}`
+                : `0 4px 10px ${alpha(theme.palette.primary.main, 0.25)}`,
             }}
           >
             {uploading ? 'Uploading...' : 'Upload Files'}
@@ -957,11 +1094,11 @@ function Documents({
                   top: '50%',
                   left: '50%',
                   marginTop: '-12px',
-                  marginLeft: '-12px'
-                }}
-              />
+                  marginLeft: '-12px',
+                  color: theme.palette.mode === 'dark' ? theme.palette.common.white : undefined
+                }}              />
             )}
-          </Button>
+          </GlowButton>
         )}
 
         {uploadError && (
@@ -990,18 +1127,31 @@ function Documents({
                   key={file.name}
                   disablePadding
                   sx={{ mb: 1 }}
-                >
-                  <ListItemButton
+                >                  <ListItemButton
                     selected={activeFile === file.name}
                     onClick={() => setActiveFile(file.name)}
                     sx={{
-                      borderRadius: 1,
+                      borderRadius: 1.5,
+                      transition: 'all 0.2s ease-in-out',
+                      border: activeFile === file.name ? `1px solid ${theme.palette.primary.main}` : '1px solid transparent',
+                      boxShadow: activeFile === file.name 
+                        ? (theme.palette.mode === 'dark' 
+                            ? `0 0 10px ${alpha(theme.palette.primary.main, 0.3)}`
+                            : '0 2px 8px rgba(0,0,0,0.08)')
+                        : 'none',
                       '&.Mui-selected': {
-                        backgroundColor: customTheme.primary.lighter,
+                        backgroundColor: theme.palette.mode === 'dark' 
+                          ? alpha(theme.palette.primary.main, 0.15)
+                          : themeCustom.primary.lighter,
                         '&:hover': {
-                          backgroundColor: customTheme.primary.light,
+                          backgroundColor: theme.palette.mode === 'dark'
+                            ? alpha(theme.palette.primary.main, 0.25)
+                            : themeCustom.primary.light,
                         },
                       },
+                      '&:hover': {
+                        transform: 'translateX(3px)',
+                      }
                     }}
                   >
                     <ListItemIcon>
@@ -1014,16 +1164,30 @@ function Documents({
                         noWrap: true,
                         sx: { fontWeight: activeFile === file.name ? 500 : 400 }
                       }}
-                    />
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveFile(file.name, e);
-                      }}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
+                    />                    <Tooltip title="Remove file">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveFile(file.name, e);
+                        }}
+                        sx={{
+                          color: theme.palette.mode === 'dark' ? alpha(theme.palette.error.main, 0.8) : theme.palette.error.main,
+                          opacity: 0.7,
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            opacity: 1,
+                            transform: 'scale(1.1)',
+                            color: theme.palette.error.main,
+                            backgroundColor: theme.palette.mode === 'dark' 
+                              ? alpha(theme.palette.error.main, 0.15)
+                              : alpha(theme.palette.error.main, 0.1)
+                          }
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </ListItemButton>
                 </ListItem>
               ))}
@@ -1047,11 +1211,14 @@ function Documents({
                     selected={currentDocument?.id === doc.id}
                     onClick={() => fetchDocument(doc.id)}
                     sx={{
-                      borderRadius: 1,
-                      '&.Mui-selected': {
-                        backgroundColor: customTheme.primary.lighter,
+                      borderRadius: 1,                      '&.Mui-selected': {
+                        backgroundColor: theme.palette.mode === 'dark' 
+                          ? alpha(theme.palette.primary.main, 0.15)
+                          : themeCustom.primary.lighter,
                         '&:hover': {
-                          backgroundColor: customTheme.primary.light,
+                          backgroundColor: theme.palette.mode === 'dark'
+                            ? alpha(theme.palette.primary.main, 0.25)
+                            : themeCustom.primary.light,
                         },
                       },
                     }}
@@ -1094,20 +1261,34 @@ function Documents({
         </List>
       </Paper>
 
-      {/* Main Content Area */}
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* Main Content Area */}      <Box 
+        sx={{ 
+          flexGrow: 1, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: 2,
+          animation: 'fadeIn 0.5s ease-in-out',
+          '@keyframes fadeIn': {
+            '0%': {
+              opacity: 0,
+            },
+            '100%': {
+              opacity: 1,
+            }
+          }
+        }}
+      >
         {activeFile ? (
           <>
-            <Paper
-              elevation={0}
+            <AnimatedCard
+              elevation={theme.palette.mode === 'dark' ? 3 : 0}
               sx={{
                 p: 2,
-                borderRadius: 2,
-                border: `1px solid ${theme.palette.divider}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                bgcolor: '#fff',
+                bgcolor: theme.palette.background.paper,
+                overflow: 'visible',
               }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1119,11 +1300,19 @@ function Documents({
                   </Typography>
                 </Box>
               </Box>
-              <Box>
-                <Button
+              <Box>                <Button
                   variant="outlined"
                   size="small"
-                  sx={{ mr: 1 }}
+                  startIcon={<CommentOutlinedIcon />}
+                  sx={{ 
+                    mr: 1,
+                    ...enhancedButtonStyle,
+                    borderColor: theme.palette.mode === 'dark' ? alpha(theme.palette.primary.main, 0.5) : undefined,
+                    '&:hover': {
+                      ...enhancedButtonStyle['&:hover'],
+                      borderColor: theme.palette.primary.main,
+                    }
+                  }}
                   onClick={() => {
                     if (selection && selection.text) {
                       handleCommentClick();
@@ -1133,27 +1322,41 @@ function Documents({
                   }}
                 >
                   Add Comment
-                </Button>
-                <Button
+                </Button>                <Button
                   variant="contained"
                   size="small"
+                  startIcon={<BookOutlinedIcon />}
                   onClick={() => setCodesModalOpen(true)}
+                  sx={{
+                    ...enhancedButtonStyle,
+                    boxShadow: theme.palette.mode === 'dark' 
+                      ? `0 0 10px ${alpha(theme.palette.primary.main, 0.3)}`
+                      : `0 2px 8px ${alpha(theme.palette.primary.main, 0.25)}`,
+                  }}
                 >
-                  Assign Code
-                </Button>
+                  Assign Code</Button>
               </Box>
-            </Paper>
-
-            <Paper
-              elevation={0}
+            </AnimatedCard>            <GlassPanel
               sx={{
                 flexGrow: 1,
                 p: 3,
-                borderRadius: 2,
-                border: `1px solid ${theme.palette.divider}`,
                 overflow: 'auto',
                 position: 'relative',
-                bgcolor: '#fff',
+                transition: 'all 0.3s ease',
+                boxShadow: theme.palette.mode === 'dark' 
+                  ? `0 5px 20px ${alpha(theme.palette.common.black, 0.3)}`
+                  : `0 5px 20px ${alpha(theme.palette.common.black, 0.05)}`,
+                animation: 'fadeInUp 0.5s ease-in-out',
+                '@keyframes fadeInUp': {
+                  '0%': {
+                    opacity: 0,
+                    transform: 'translateY(10px)'
+                  },
+                  '100%': {
+                    opacity: 1,
+                    transform: 'translateY(0)'
+                  }
+                }
               }}
             >
               {processingFile ? (
@@ -1284,29 +1487,52 @@ function Documents({
                       <CircularProgress />
                       <Typography>Loading document content...</Typography>
                     </Box>
-                  )}
-                </>
+                  )}                </>
               )}
-            </Paper>
+            </GlassPanel>
           </>
-        ) : (
-          <Box
+        ) : (          <GlassPanel
             sx={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               height: '100%',
-              gap: 2,
-              color: theme.palette.text.secondary,
+              gap: 3,
+              color: theme.palette.mode === 'dark' ? alpha(theme.palette.common.white, 0.7) : theme.palette.text.secondary,
+              animation: 'pulse 2s infinite ease-in-out',
+              '@keyframes pulse': {
+                '0%': { boxShadow: '0 0 0 0 rgba(33, 150, 243, 0)' },
+                '50%': { boxShadow: '0 0 0 8px rgba(33, 150, 243, 0.1)' },
+                '100%': { boxShadow: '0 0 0 0 rgba(33, 150, 243, 0)' }
+              }
             }}
           >
-            <ArticleIcon sx={{ fontSize: 64, opacity: 0.5 }} />
-            <Typography variant="h6">No file selected</Typography>
-            <Typography variant="body2">
-              Select a file from the list or upload a new one
+            <ArticleIcon sx={{ 
+              fontSize: 80, 
+              opacity: 0.6,
+              color: theme.palette.primary.main,
+              filter: theme.palette.mode === 'dark' 
+                ? 'drop-shadow(0 0 8px rgba(97, 175, 254, 0.5))'
+                : 'none',
+            }} />
+            <Typography variant="h5" sx={{ fontWeight: 500 }}>No file selected</Typography>
+            <Typography variant="body2" align="center" sx={{ maxWidth: '80%' }}>
+              Select a file from the list or upload a new document to begin your analysis
             </Typography>
-          </Box>
+            <Button 
+              variant="outlined"
+              onClick={() => document.getElementById('file-input').click()}
+              startIcon={<CloudUploadIcon />}
+              sx={{
+                mt: 2,
+                ...enhancedButtonStyle,
+                borderColor: theme.palette.mode === 'dark' ? alpha(theme.palette.primary.main, 0.5) : undefined,
+              }}
+            >
+              Upload Documents
+            </Button>
+          </GlassPanel>
         )}
       </Box>
 
@@ -1336,9 +1562,12 @@ function Documents({
           <Typography variant="subtitle1" gutterBottom>Selected Text:</Typography>
           <Paper sx={{
             p: 2,
-            mb: 3,
-            bgcolor: customTheme.primary.lighter,
-            border: `1px solid ${customTheme.primary.light}`,
+            mb: 3,            bgcolor: theme.palette.mode === 'dark' 
+              ? alpha(theme.palette.primary.main, 0.15)
+              : themeCustom.primary.lighter,
+            border: `1px solid ${theme.palette.mode === 'dark' 
+              ? alpha(theme.palette.primary.main, 0.4)
+              : themeCustom.primary.light}`,
             borderRadius: 1,
           }}>
             <Typography>{selection?.text}</Typography>
@@ -1496,8 +1725,58 @@ function Documents({
             primary="Research Objectives" 
             secondary="View and manage research goals"
           />
-        </MenuItem>
-      </Menu>
+        </MenuItem>      </Menu>
+      
+      {/* Success notification */}
+      <Snackbar
+        open={uploadSuccess}
+        autoHideDuration={4000}
+        onClose={() => setUploadSuccess(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        TransitionComponent={Fade}
+      >
+        <Alert 
+          onClose={() => setUploadSuccess(false)} 
+          severity="success" 
+          variant="filled"
+          sx={{ 
+            width: '100%',
+            boxShadow: theme.palette.mode === 'dark'
+              ? '0 4px 20px rgba(0,0,0,0.5)'
+              : '0 4px 20px rgba(0,0,0,0.15)',
+            borderRadius: '10px',
+            '& .MuiAlert-icon': {
+              fontSize: '1.2rem'
+            }
+          }}
+        >
+          Documents uploaded successfully!
+        </Alert>
+      </Snackbar>
+      
+      {/* Error notification */}
+      <Snackbar
+        open={!!uploadError}
+        autoHideDuration={6000}
+        onClose={() => setUploadError('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        TransitionComponent={Fade}
+      >
+        <Alert 
+          onClose={() => setUploadError('')} 
+          severity="error" 
+          variant="filled"
+          sx={{ 
+            width: '100%',
+            boxShadow: theme.palette.mode === 'dark'
+              ? '0 4px 20px rgba(0,0,0,0.5)'
+              : '0 4px 20px rgba(0,0,0,0.15)',
+            borderRadius: '10px'
+          }}
+        >
+          {uploadError}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

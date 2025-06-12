@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   Box,
   Button,
@@ -13,7 +13,9 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemIcon
+  ListItemIcon,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import CommentOutlinedIcon from '@mui/icons-material/CommentOutlined';
@@ -29,10 +31,14 @@ import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutl
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import TableChartIcon from '@mui/icons-material/TableChart';
+import Brightness4Icon from '@mui/icons-material/Brightness4';
+import Brightness7Icon from '@mui/icons-material/Brightness7';
 import ProfileButton from './ProfileButton';
+import { ThemeModeContext } from '../App';
 
 function Navigation({ activeMenuItem, handleMenuItemClick, selectedFiles, documents = [], activeFile, setActiveFile, handleRemoveFile, onDocumentSelect }) {
   const theme = useTheme();
+  const { toggleColorMode, mode } = useContext(ThemeModeContext);
   const [isExpanded, setIsExpanded] = useState(true);
   const [hoveredItem, setHoveredItem] = useState(null);
   const [documentsExpanded, setDocumentsExpanded] = useState(true);
@@ -65,35 +71,36 @@ function Navigation({ activeMenuItem, handleMenuItemClick, selectedFiles, docume
       description: 'Explore thematic analysis visualizations'
     }
   ];
-
   return (
     <Slide direction="right" in={true} mountOnEnter unmountOnExit>
       <Box
         sx={{
           width: isExpanded ? 280 : 80,
-          bgcolor: 'white',
+          bgcolor: theme.palette.background.paper,
           borderRight: `1px solid ${theme.palette.divider}`,
           display: 'flex',
           flexDirection: 'column',
           p: 2,
           transition: 'all 0.3s ease-in-out',
           position: 'relative',
-          boxShadow: '2px 0 8px rgba(0,0,0,0.05)',
+          boxShadow: mode === 'dark' ? '2px 0 8px rgba(0,0,0,0.3)' : '2px 0 8px rgba(0,0,0,0.05)',
+          height: '100vh',
         }}
       >
-        {/* Toggle Button */}
-        <IconButton
+        {/* Toggle Button */}        <IconButton
           onClick={() => setIsExpanded(!isExpanded)}
           sx={{
             position: 'absolute',
             right: -12,
             top: 20,
-            bgcolor: 'white',
+            bgcolor: theme.palette.background.paper,
             border: `1px solid ${theme.palette.divider}`,
             '&:hover': {
-              bgcolor: theme.palette.grey[50],
+              bgcolor: theme.palette.action.hover,
             },
             zIndex: 1,
+            transition: 'all 0.2s ease-in-out',
+            boxShadow: mode === 'dark' ? '0 0 5px rgba(255,255,255,0.1)' : '0 0 5px rgba(0,0,0,0.1)',
           }}
         >
           {isExpanded ? <ChevronLeftIcon /> : <ChevronRightIcon />}
@@ -117,7 +124,22 @@ function Navigation({ activeMenuItem, handleMenuItemClick, selectedFiles, docume
           </Typography>
         </Fade>
 
-        <Divider sx={{ mb: 2 }} />        {/* Menu Items */}
+        <Divider sx={{ mb: 2 }} />
+          {/* Theme Toggle */}
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, justifyContent: isExpanded ? 'flex-start' : 'center' }}>
+          <Tooltip title={isExpanded ? '' : (theme.palette.mode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode')}>
+            <IconButton onClick={toggleColorMode} color="inherit" sx={{ mr: isExpanded ? 1 : 0 }}>
+              {theme.palette.mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
+            </IconButton>
+          </Tooltip>
+          {isExpanded && (
+            <Fade in={isExpanded}>
+              <Typography variant="body2" color="textSecondary">
+                {theme.palette.mode === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              </Typography>
+            </Fade>
+          )}
+        </Box>        {/* Menu Items */}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {menuItems.map((item) => (
             <React.Fragment key={item.name}>
