@@ -382,7 +382,26 @@ function Navigation({ activeMenuItem, handleMenuItemClick, selectedFiles, docume
                                 setActiveFile(fileName);
                                 // If this is a document from the server (has an id), trigger document fetch
                                 if (file.id && onDocumentSelect) {
-                                  onDocumentSelect(file.id);
+                                  // First check if this is a File object or our document object
+                                  if (file instanceof File) {
+                                    // It's a direct file object - we need to find the corresponding document
+                                    const matchingDoc = documents.find(
+                                      d => d.filename === file.name || d.title === file.name
+                                    );
+                                    if (matchingDoc) {
+                                      // Found the document, pass both the document ID and the file object
+                                      onDocumentSelect(matchingDoc.id, file);
+                                    } else {
+                                      // No matching document found, just pass the file
+                                      console.warn('No matching document found for file:', file.name);
+                                      onDocumentSelect(null, file);
+                                    }
+                                  } else {
+                                    // Pass along the file object if it exists, to ensure proper parsing
+                                    // This handles both regular documents and those with file objects
+                                    const fileObj = file.fileObject || file._file || file;
+                                    onDocumentSelect(file.id, fileObj);
+                                  }
                                 }
                                 // Ensure we're on Documents page
                                 handleMenuItemClick('Documents');

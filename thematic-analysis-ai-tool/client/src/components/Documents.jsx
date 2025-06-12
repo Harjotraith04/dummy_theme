@@ -198,22 +198,71 @@ function Documents({
     if (files && files.length > 0) {
       handleNewFiles(files);
     }
-  };
-
-  const handleNewFiles = (files) => {
+  };  const handleNewFiles = (files) => {
+    if (!files || !files.length) {
+      console.warn('No files provided to handleNewFiles');
+      return;
+    }
+    
+    console.log(`Processing ${files.length} new files`);
+    
     const newFiles = [...selectedFiles];
     const newFileData = { ...fileData };
     
+    // Store uploaded files in a global cache for potential access later
+    if (!window.uploadedFiles) window.uploadedFiles = [];
+    
     files.forEach(file => {
+      if (!file || !file.name) {
+        console.warn('Invalid file object:', file);
+        return;
+      }
+      
+      // Check if we already have this file
       if (!selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+        // Add to selectedFiles
         newFiles.push(file);
-        newFileData[file.name] = { tabularData: null, error: null };
+        
+        // Add to global cache
+        if (!window.uploadedFiles.some(f => f.name === file.name && f.size === file.size)) {
+          window.uploadedFiles.push(file);
+        }
+        
+        // Process each file immediately to extract content
         processFile(file);
+        
+        // Also update any documents that might reference this file by name
+        const documentsToUpdate = documents.filter(
+          doc => (doc.filename === file.name || doc.title === file.name) && !doc.fileObject
+        );
+        
+        if (documentsToUpdate.length > 0) {
+          console.log(`Updating ${documentsToUpdate.length} documents with file object for ${file.name}`);
+          const updatedDocs = documents.map(doc => {
+            if (doc.filename === file.name || doc.title === file.name) {
+              return {...doc, fileObject: file};
+            }
+            return doc;
+          });
+          
+          if (typeof setDocuments === 'function') {
+            setDocuments(updatedDocs);
+          }
+        } else {
+          // No existing document references this file - we might need to create one
+          console.log('No matching document found for file:', file.name);
+          
+          // For now, we just log this - document creation would happen in handleBulkUpload
+        }
+      } else {
+        console.log(`File ${file.name} already exists in selectedFiles, skipping`);
       }
     });
     
+    // Update selectedFiles state
     setSelectedFiles(newFiles);
-    setFileData(newFileData);
+    
+    // If we don't have an active file yet but we have files, set the first one active
     if (newFiles.length > 0 && !activeFile) {
       setActiveFile(newFiles[0].name);
     }
@@ -227,16 +276,47 @@ function Documents({
   const handleDragLeave = () => {
     setIsDragging(false);
   };
-
   const processFile = (file) => {
+    // Check if the file object is valid before proceeding
+    if (!file || typeof file !== 'object') {
+      console.error('Invalid file object:', file);
+      setFileData(prev => ({
+        ...prev,
+        ['unknown_file']: { tabularData: null, error: 'Invalid file object' }
+      }));
+      setProcessingFile(false);
+      return;
+    }
+    
+    // Safely get the filename and extension
+    const fileName = file.name || (file.filename || 'unknown_file');
+    const fileExtensionMatch = fileName.split('.');
+    const fileExtension = fileExtensionMatch.length > 1 
+      ? fileExtensionMatch.pop().toLowerCase() 
+      : '';
+    
+    console.log(`Processing file: ${fileName}, type: ${fileExtension}`);
     setProcessingFile(true);
-    const reader = new FileReader();
-    const fileExtension = file.name.split('.').pop().toLowerCase();
+    
+    // Continue only if we have a valid file object with proper methods
+    if (!file.arrayBuffer && !file.text) {
+      console.error('File object is missing required methods:', file);
+      setFileData(prev => ({
+        ...prev,
+        [fileName]: { tabularData: null, error: 'Invalid file object (missing read methods)' }
+      }));
+      setProcessingFile(false);
+      return;
+    }
 
+    const reader = new FileReader();
+    
     reader.onload = async (e) => {
       try {
         let tabularData = null;
-        let error = null;        if (fileExtension === 'csv') {
+        let error = null;
+        
+        if (fileExtension === 'csv') {
           const text = e.target.result;
           const rows = text
             .split(/\r?\n/)
@@ -254,19 +334,38 @@ function Documents({
             throw new Error('No valid data found in CSV file');
           }
         } else if (['xlsx', 'xls'].includes(fileExtension)) {
-          const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-          
-          if (rows.length > 0) {
-            tabularData = rows;
-            // Convert Excel data to text format for text selection
-            const textContent = rows.map(row => row.join('\t')).join('\n');
-            setDocumentText(textContent);
-          } else {
-            throw new Error('No valid data found in Excel file');
-          }} else if (['txt'].includes(fileExtension)) {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            
+            // Check if workbook has sheets before proceeding
+            if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+              throw new Error('Excel file does not contain any sheets');
+            }
+            
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            if (!firstSheet) {
+              throw new Error('Could not access the first sheet in the Excel file');
+            }
+            
+            const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+            
+            if (rows && rows.length > 0) {
+              tabularData = rows;
+              // Convert Excel data to text format for text selection
+              // Make sure we handle null/undefined values
+              const textContent = rows.map(row => 
+                (row || []).map(cell => (cell !== null && cell !== undefined) ? cell.toString() : '').join('\t')
+              ).join('\n');
+              setDocumentText(textContent);
+            } else {
+              throw new Error('No valid data found in Excel file');
+            }
+          } catch (excelError) {
+            console.error('Excel processing error:', excelError);
+            throw new Error(`Error processing Excel file: ${excelError.message}`);
+          }
+        } else if (['txt'].includes(fileExtension)) {
           const text = e.target.result;
           setDocumentText(text);
           const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
@@ -298,35 +397,45 @@ function Documents({
 
         setFileData(prev => ({
           ...prev,
-          [file.name]: { tabularData, error }
+          [fileName]: { tabularData, error }
         }));
       } catch (error) {
         console.error('Error processing file:', error);
         setFileData(prev => ({
           ...prev,
-          [file.name]: { tabularData: null, error: error.message }
+          [fileName]: { tabularData: null, error: error.message }
         }));
       } finally {
         setProcessingFile(false);
       }
     };
 
-    reader.onerror = () => {
+    reader.onerror = (error) => {
+      console.error('FileReader error:', error);
       setFileData(prev => ({
         ...prev,
-        [file.name]: { tabularData: null, error: 'Error reading file' }
+        [fileName]: { tabularData: null, error: 'Error reading file' }
       }));
       setProcessingFile(false);
     };
 
-    if (['csv', 'txt'].includes(fileExtension)) {
-      reader.readAsText(file);
-    } else if (['xlsx', 'xls', 'pdf'].includes(fileExtension)) {
-      reader.readAsArrayBuffer(file);
-    } else {
+    try {
+      if (['csv', 'txt'].includes(fileExtension)) {
+        reader.readAsText(file);
+      } else if (['xlsx', 'xls', 'pdf'].includes(fileExtension)) {
+        reader.readAsArrayBuffer(file);
+      } else {
+        setFileData(prev => ({
+          ...prev,
+          [fileName]: { tabularData: null, error: 'Unsupported file type' }
+        }));
+        setProcessingFile(false);
+      }
+    } catch (error) {
+      console.error('Error starting file read:', error);
       setFileData(prev => ({
         ...prev,
-        [file.name]: { tabularData: null, error: 'Unsupported file type' }
+        [fileName]: { tabularData: null, error: `Error reading file: ${error.message}` }
       }));
       setProcessingFile(false);
     }
@@ -462,8 +571,7 @@ function Documents({
       elements.push(<span key={lastIndex}>{documentText.slice(lastIndex)}</span>);
     }
     return elements;
-  };
-  const handleBulkUpload = async (event) => {
+  };  const handleBulkUpload = async (event) => {
     setUploading(true);
     setUploadError('');
     try {
@@ -482,16 +590,34 @@ function Documents({
       // Give a small delay to simulate network latency
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      // Create documents from the files and store actual file objects for later processing
-      const newDocuments = Array.from(files).map((file, index) => ({
-        id: `doc-${Date.now()}-${index}`,
-        project_id: projectId,
-        title: file.name,
-        filename: file.name,
-        content: `Content for ${file.name}`, // Placeholder - real content will be processed when accessed
-        created_at: new Date().toISOString(),
-        fileObject: file // Store the actual file object for later processing
-      }));
+      // Process each file immediately to extract its content
+      Array.from(files).forEach(file => {
+        processFile(file);
+      });
+      
+      // Create documents from the files and store actual file objects
+      const newDocuments = Array.from(files).map((file, index) => {
+        // Create a cloned file object that can be serialized and persisted
+        // We need to do this because File objects can't be directly stored in state
+        const fileData = {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+          // Store the actual file object as a property - this won't be serialized
+          _file: file
+        };
+        
+        return {
+          id: `doc-${Date.now()}-${index}`,
+          project_id: projectId,
+          title: file.name,
+          filename: file.name,
+          content: `Content for ${file.name}`, // Placeholder - real content already processed
+          created_at: new Date().toISOString(),
+          fileObject: fileData // Store file metadata and reference
+        };
+      });
       
       // Add these to our existing documents
       const updatedDocuments = [...documents, ...newDocuments];
@@ -502,7 +628,7 @@ function Documents({
         setDocuments(updatedDocuments);
       }
       
-      // Call handleNewFiles to also add them to selectedFiles for immediate processing
+      // Call handleNewFiles to also process files and save in selectedFiles
       handleNewFiles(Array.from(files));
       
       // Refresh sidebar if needed
@@ -510,59 +636,125 @@ function Documents({
         refreshSidebar();
       }
       
-      // Process all files immediately to have their content available
-      Array.from(files).forEach(file => {
-        processFile(file);
-      });
-      
     } catch (err) {
       setUploadError('Failed to upload files');
       console.error('Upload error:', err);
     } finally {
       setUploading(false);
     }
-  };  const fetchDocument = async (documentId) => {
+  };const fetchDocument = async (documentId) => {
     try {
+      console.log('Fetching document with ID:', documentId);
+      
       // Find the document in our local state
       const document = documents.find(doc => doc.id === documentId);
-      setCurrentDocument(document || null);
       
-      if (document) {
-        // Set this document as the active file for parsing and display
-        setActiveFile(document.filename || document.title);
-        
-        // Process the document content for display
-        await processDocumentContent(document);
+      if (!document) {
+        console.error('Document not found with ID:', documentId);
+        setCurrentDocument(null);
+        return;
       }
+      
+      setCurrentDocument(document);
+      
+      // Set this document as the active file for parsing and display
+      const fileName = document.filename || document.title;
+      setActiveFile(fileName);
+      
+      // Always try to find the matching selectedFile by name
+      const matchingFile = selectedFiles.find(f => f.name === fileName);
+      
+      if (matchingFile && !document.fileObject) {
+        // If we have the actual file in selectedFiles but not in the document,
+        // add it to the document and update the documents array
+        document.fileObject = matchingFile;
+        console.log('Added matching file to document from selectedFiles');
+        
+        // Also update the documents array so this change persists
+        setDocuments(documents.map(doc => {
+          if (doc.id === documentId) {
+            return {...doc, fileObject: matchingFile};
+          }
+          return doc;
+        }));
+      }
+      
+      // Process the document content for display
+      await processDocumentContent(document);
+      
     } catch (err) {
       console.error("Error fetching document:", err);
       setCurrentDocument(null);
     }
-  };
-  // Function to process document content for display
+  };// Function to process document content for display
   const processDocumentContent = async (document) => {
     try {
-      setProcessingFile(true);
-      
-      const fileName = document.filename || document.title;
-      const fileExtension = fileName.split('.').pop().toLowerCase();
-      
-      // Check if we already have processed data for this file
-      if (fileData[fileName]) {
+      if (!document) {
+        console.error('No document provided to processDocumentContent');
         setProcessingFile(false);
         return;
       }
       
-      // If we have the actual file object, process it with real content
-      if (document.fileObject) {
-        processFile(document.fileObject);
+      setProcessingFile(true);
+      
+      // Safely extract file name and extension
+      const fileName = document.filename || document.title || 'Unknown Document';
+      let fileExtension = '';
+      if (fileName.includes('.')) {
+        fileExtension = fileName.split('.').pop().toLowerCase();
+      }
+      
+      console.log('Processing document:', fileName, 'has fileObject:', !!document.fileObject);
+      
+      // Check if we already have processed data for this file
+      if (fileData[fileName]) {
+        console.log('File data already exists for:', fileName);
+        setProcessingFile(false);
         return;
+      }
+      
+      // If we have a file object stored in the document, use it
+      if (document.fileObject) {
+        console.log('Document has fileObject, processing real file content');
+        
+        // Extract the file object - handle different storage formats
+        let file = null;
+        
+        if (document.fileObject instanceof File) {
+          // It's a direct File object
+          file = document.fileObject;
+        } else if (document.fileObject._file && document.fileObject._file instanceof File) {
+          // It's our custom fileData format with nested File object
+          file = document.fileObject._file;
+        } else if (typeof document.fileObject === 'object' && document.fileObject.name) {
+          // It's a file-like object
+          file = document.fileObject;
+        }
+        
+        if (file) {
+          console.log('Valid file object found, using processFile');
+          // Use our existing processFile function
+          processFile(file);
+          return;
+        } else {
+          console.warn('Invalid file object format:', document.fileObject);
+        }
       }
       
       // If no file object but the file exists in selectedFiles, use that
       const existingFile = selectedFiles.find(f => f.name === fileName);
       if (existingFile) {
+        console.log('Found matching file in selectedFiles');
         processFile(existingFile);
+        return;
+      }
+      
+      // Search for file in the uploaded files that might match by name
+      const allFiles = document.uploaderFiles || window.uploadedFiles || [];
+      const matchingFile = allFiles.find(f => f.name === fileName);
+      if (matchingFile) {
+        console.log('Found matching file in uploaded files cache');
+        processFile(matchingFile);
         return;
       }
       
@@ -585,9 +777,10 @@ function Documents({
 
     } catch (error) {
       console.error('Error processing document:', error);
+      const documentName = document && (document.filename || document.title || 'Unknown Document');
       setFileData(prev => ({
         ...prev,
-        [document.filename || document.title]: { tabularData: null, error: error.message }
+        [documentName]: { tabularData: null, error: error.message }
       }));
     } finally {
       setProcessingFile(false);
