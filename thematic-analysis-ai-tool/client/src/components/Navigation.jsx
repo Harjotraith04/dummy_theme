@@ -31,7 +31,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ProfileButton from './ProfileButton';
 
-function Navigation({ activeMenuItem, handleMenuItemClick, selectedFiles, documents = [], activeFile, setActiveFile, handleRemoveFile }) {
+function Navigation({ activeMenuItem, handleMenuItemClick, selectedFiles, documents = [], activeFile, setActiveFile, handleRemoveFile, onDocumentSelect }) {
   const theme = useTheme();
   const [isExpanded, setIsExpanded] = useState(true);
   const [hoveredItem, setHoveredItem] = useState(null);
@@ -377,13 +377,15 @@ function Navigation({ activeMenuItem, handleMenuItemClick, selectedFiles, docume
                           <ListItem 
                             key={file.id || fileName}
                             button 
-                            selected={activeFile === fileName}
-                            onClick={() => {
+                            selected={activeFile === fileName}                            onClick={() => {
                               if (setActiveFile) {
                                 setActiveFile(fileName);
-                                if (file.id) {
-                                  handleMenuItemClick('Documents'); // Ensure we're on Documents page
+                                // If this is a document from the server (has an id), trigger document fetch
+                                if (file.id && onDocumentSelect) {
+                                  onDocumentSelect(file.id);
                                 }
+                                // Ensure we're on Documents page
+                                handleMenuItemClick('Documents');
                               }
                             }}
                             sx={{ 

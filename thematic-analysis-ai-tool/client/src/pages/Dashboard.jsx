@@ -42,15 +42,17 @@ function Dashboard() {
     definition: '',
     description: '',
     category: '',
-    color: ''
-  });
+    color: ''  });
 
-  // State for documents uploaded
+  // State for documents uploaded - start with empty array
   const [documents, setDocuments] = useState([]);
 
   // Add state for comments and code assignments
   const [commentData, setCommentData] = useState([]);
   const [codeAssignments, setCodeAssignments] = useState([]);
+
+  // State to track selected document for processing
+  const [selectedDocumentId, setSelectedDocumentId] = useState(null);
 
   const handleMenuItemClick = (menuItem) => {
     setActiveMenuItem(menuItem);
@@ -71,6 +73,15 @@ function Dashboard() {
     }
   };
 
+  // Handle document selection from navigation
+  const handleDocumentSelect = (documentId) => {
+    // Ensure we're on the Documents page
+    setActiveMenuItem('Documents');
+    
+    // Set the selected document ID which will be picked up by Documents component
+    setSelectedDocumentId(documentId);
+  };
+
   return (
     <Box 
       sx={{ 
@@ -78,8 +89,7 @@ function Dashboard() {
         minHeight: '100vh',
         bgcolor: theme.palette.background.default,
       }}
-    >
-      <Navigation
+    >      <Navigation
         activeMenuItem={activeMenuItem}
         handleMenuItemClick={handleMenuItemClick}
         selectedFiles={selectedFiles}
@@ -87,6 +97,7 @@ function Dashboard() {
         activeFile={activeFile}
         setActiveFile={setActiveFile}
         handleRemoveFile={handleRemoveFile}
+        onDocumentSelect={handleDocumentSelect}
       />
 
       <Box 
@@ -158,9 +169,7 @@ function Dashboard() {
               claudeApiKey={claudeApiKey}
               setClaudeApiKey={setClaudeApiKey}
             />
-          )}
-
-          {activeMenuItem === 'Documents' && (
+          )}          {activeMenuItem === 'Documents' && (
             <Documents
               projectId={projectId}
               setCodesModalOpen={setCodesModalOpen}
@@ -177,6 +186,8 @@ function Dashboard() {
               documents={documents}
               setDocuments={setDocuments}
               refreshSidebar={() => {}}
+              selectedDocumentId={selectedDocumentId}
+              setSelectedDocumentId={setSelectedDocumentId}
             />
           )}
 

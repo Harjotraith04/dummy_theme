@@ -125,7 +125,9 @@ function Documents({
   setCodeAssignments,
   documents = [],
   setDocuments, // Parent component's documents state setter
-  refreshSidebar // New prop to trigger sidebar refresh when documents change
+  refreshSidebar, // New prop to trigger sidebar refresh when documents change
+  selectedDocumentId, // New prop to handle document selection from navigation
+  setSelectedDocumentId // New prop to clear selection after processing
 }) {
   const theme = useTheme();
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -146,7 +148,6 @@ function Documents({
   const [processingFile, setProcessingFile] = useState(false);
   const [analysisAnchor, setAnalysisAnchor] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(false); // Track upload success state
-
   useEffect(() => {
     // No sample documents - only display documents provided by parent or uploaded
     if (projectId && documents.length === 0) {
@@ -154,6 +155,15 @@ function Documents({
       // No sample documents
     }
   }, [projectId]);
+
+  // Handle selected document from navigation
+  useEffect(() => {
+    if (selectedDocumentId && setSelectedDocumentId) {
+      fetchDocument(selectedDocumentId);
+      // Clear the selection after processing
+      setSelectedDocumentId(null);
+    }
+  }, [selectedDocumentId, setSelectedDocumentId]);
 
   // For UI design only - no actual API calls
   const fetchProjectDocuments = () => {
@@ -226,9 +236,7 @@ function Documents({
     reader.onload = async (e) => {
       try {
         let tabularData = null;
-        let error = null;
-
-        if (fileExtension === 'csv') {
+        let error = null;        if (fileExtension === 'csv') {
           const text = e.target.result;
           const rows = text
             .split(/\r?\n/)
@@ -240,6 +248,8 @@ function Documents({
           
           if (rows.length > 0) {
             tabularData = rows;
+            // Set document text for CSV content (for text selection)
+            setDocumentText(text);
           } else {
             throw new Error('No valid data found in CSV file');
           }
@@ -251,32 +261,37 @@ function Documents({
           
           if (rows.length > 0) {
             tabularData = rows;
+            // Convert Excel data to text format for text selection
+            const textContent = rows.map(row => row.join('\t')).join('\n');
+            setDocumentText(textContent);
           } else {
             throw new Error('No valid data found in Excel file');
-          }
+          }} else if (['txt'].includes(fileExtension)) {
+          const text = e.target.result;
+          setDocumentText(text);
+          const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+          tabularData = lines.map((line, index) => [index + 1, line]);
         } else if (fileExtension === 'pdf') {
           try {
             const arrayBuffer = e.target.result;
             const pdf = await getDocument({ data: arrayBuffer }).promise;
             const numPages = pdf.numPages;
             const textContent = [];
+            let fullText = '';
             
             for (let i = 1; i <= numPages; i++) {
               const page = await pdf.getPage(i);
               const content = await page.getTextContent();
               const pageText = content.items.map(item => item.str).join(' ');
               textContent.push([`Page ${i}`, pageText]);
+              fullText += `Page ${i}: ${pageText}\n\n`;
             }
             
             tabularData = textContent;
+            setDocumentText(fullText); // Set the full PDF text for text selection
           } catch (pdfError) {
             throw new Error(`Error processing PDF: ${pdfError.message}`);
           }
-        } else if (['txt'].includes(fileExtension)) {
-          const text = e.target.result;
-          setDocumentText(text);
-          const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
-          tabularData = lines.map((line, index) => [index + 1, line]);
         } else {
           error = 'Unsupported file type. Please upload a CSV, Excel, PDF, or text file.';
         }
@@ -448,7 +463,6 @@ function Documents({
     }
     return elements;
   };
-
   const handleBulkUpload = async (event) => {
     setUploading(true);
     setUploadError('');
@@ -465,21 +479,18 @@ function Documents({
         return;
       }
       
-      // Mock document upload process
-      // In a frontend-only app, we'll create mock document objects
-      // and add them to our documents state
-      
       // Give a small delay to simulate network latency
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      // Create mock documents from the files
+      // Create documents from the files and store actual file objects for later processing
       const newDocuments = Array.from(files).map((file, index) => ({
         id: `doc-${Date.now()}-${index}`,
         project_id: projectId,
         title: file.name,
         filename: file.name,
-        content: `Mock content for ${file.name}`,
-        created_at: new Date().toISOString()
+        content: `Content for ${file.name}`, // Placeholder - real content will be processed when accessed
+        created_at: new Date().toISOString(),
+        fileObject: file // Store the actual file object for later processing
       }));
       
       // Add these to our existing documents
@@ -491,7 +502,7 @@ function Documents({
         setDocuments(updatedDocuments);
       }
       
-      // Call handleNewFiles to also add them to selectedFiles
+      // Call handleNewFiles to also add them to selectedFiles for immediate processing
       handleNewFiles(Array.from(files));
       
       // Refresh sidebar if needed
@@ -499,11 +510,9 @@ function Documents({
         refreshSidebar();
       }
       
-      // Process PDF files to extract text (still works on frontend)
+      // Process all files immediately to have their content available
       Array.from(files).forEach(file => {
-        if (file.type === 'application/pdf') {
-          processFile(file);
-        }
+        processFile(file);
       });
       
     } catch (err) {
@@ -512,16 +521,76 @@ function Documents({
     } finally {
       setUploading(false);
     }
-  };
-
-  const fetchDocument = async (documentId) => {
+  };  const fetchDocument = async (documentId) => {
     try {
       // Find the document in our local state
       const document = documents.find(doc => doc.id === documentId);
       setCurrentDocument(document || null);
+      
+      if (document) {
+        // Set this document as the active file for parsing and display
+        setActiveFile(document.filename || document.title);
+        
+        // Process the document content for display
+        await processDocumentContent(document);
+      }
     } catch (err) {
       console.error("Error fetching document:", err);
       setCurrentDocument(null);
+    }
+  };
+  // Function to process document content for display
+  const processDocumentContent = async (document) => {
+    try {
+      setProcessingFile(true);
+      
+      const fileName = document.filename || document.title;
+      const fileExtension = fileName.split('.').pop().toLowerCase();
+      
+      // Check if we already have processed data for this file
+      if (fileData[fileName]) {
+        setProcessingFile(false);
+        return;
+      }
+      
+      // If we have the actual file object, process it with real content
+      if (document.fileObject) {
+        processFile(document.fileObject);
+        return;
+      }
+      
+      // If no file object but the file exists in selectedFiles, use that
+      const existingFile = selectedFiles.find(f => f.name === fileName);
+      if (existingFile) {
+        processFile(existingFile);
+        return;
+      }
+      
+      // Fallback: If it's a document from navigation that doesn't have file object,
+      // show a message that content is not available for parsing
+      let textContent = `Document: ${fileName}\n\nThis document was uploaded but the original file content is not available for parsing.\n\nTo view and analyze the actual content, please re-upload the file using the file upload feature.`;
+      
+      // Set basic data structure
+      const lines = textContent.split('\n').filter(line => line.trim() !== '');
+      const tabularData = lines.map((line, index) => [index + 1, line]);
+      
+      // Set the document text for text selection and annotation
+      setDocumentText(textContent);
+      
+      // Store the processed data
+      setFileData(prev => ({
+        ...prev,
+        [fileName]: { tabularData, error: null }
+      }));
+
+    } catch (error) {
+      console.error('Error processing document:', error);
+      setFileData(prev => ({
+        ...prev,
+        [document.filename || document.title]: { tabularData: null, error: error.message }
+      }));
+    } finally {
+      setProcessingFile(false);
     }
   };
 
@@ -850,10 +919,10 @@ function Documents({
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <FileTypeIcon fileType={activeFile.split('.').pop().toLowerCase()} />
-                <Box>
-                  <Typography variant="h6">{activeFile}</Typography>
+                <Box>                  <Typography variant="h6">{activeFile}</Typography>
                   <Typography variant="body2" color="textSecondary">
                     {fileData[activeFile]?.tabularData?.length || 0} rows
+                    {currentDocument && ` • Document ID: ${currentDocument.id}`}
                   </Typography>
                 </Box>
               </Box>
@@ -992,9 +1061,7 @@ function Documents({
                         </TableBody>
                       </Table>
                     </TableContainer>
-                  )}
-
-                  {activeFile.endsWith('.txt') && (
+                  )}                  {(activeFile.endsWith('.txt') || documentText) && (
                     <Box
                       sx={{
                         whiteSpace: 'pre-wrap',
@@ -1004,7 +1071,25 @@ function Documents({
                         p: 2,
                       }}
                     >
-                      {documentText}
+                      {documentText || 'Loading document content...'}
+                    </Box>
+                  )}
+
+                  {/* Show message for documents from navigation */}
+                  {currentDocument && !fileData[activeFile] && !processingFile && (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: '200px',
+                        gap: 2,
+                        color: theme.palette.text.secondary,
+                      }}
+                    >
+                      <CircularProgress />
+                      <Typography>Loading document content...</Typography>
                     </Box>
                   )}
                 </>
