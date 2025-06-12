@@ -46,10 +46,7 @@ function Dashboard() {
   });
 
   // State for documents uploaded
-  const [documents, setDocuments] = useState([
-    { id: '1', filename: 'thematic_analysis.csv', project_id: projectId, title: 'thematic_analysis.csv', created_at: new Date().toISOString() },
-    { id: '2', filename: 'Interview 9 Transcript.docx', project_id: projectId, title: 'Interview 9 Transcript.docx', created_at: new Date().toISOString() }
-  ]);
+  const [documents, setDocuments] = useState([]);
 
   // Add state for comments and code assignments
   const [commentData, setCommentData] = useState([]);
